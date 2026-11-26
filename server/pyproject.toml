@@ -1,0 +1,67 @@
+[project]
+name = "kwhale-v3-server"
+version = "0.1.0"
+description = "KWhale v3 — self-hosted music streaming: ICM/Yandex/SoundCloud connectors + unified local library"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "httpx[socks]>=0.27",
+    "pyjwt>=2.9",
+    "pydantic>=2.8",
+    "python-multipart>=0.0.9",
+    "mutagen>=1.47",
+    "yandex-music>=2.2",
+    "yt-dlp>=2026.8.19",
+    "shazamio>=0.8",
+    "aiohttp-socks>=0.9",
+    "cryptography>=43.0",
+    "pillow>=10.4",
+    "fastmcp>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.13",
+    "numpy>=1.26",
+]
+indexer = [
+    "essentia>=2.1b6.dev1389",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501", "B008"] # B008: FastAPI Depends() in defaults is idiomatic
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+disable_error_code = ["import-untyped"]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app" = [
+    "static/share/*.js",
+    "static/share/*.png",
+    "static/share/fonts/*.woff2",
+    "static/share/icons/*.svg",
+]

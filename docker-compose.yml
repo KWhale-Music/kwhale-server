@@ -1,0 +1,124 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: kwhale
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kwhale}
+      POSTGRES_DB: kwhale
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kwhale -d kwhale"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./server
+      args:
+        # HTTP proxy для pip (Fastly/PyPI деградирован из этой сети).
+        # Пример: PIP_PROXY=http://172.17.0.1:2080 docker compose build api
+        PIP_PROXY: ${PIP_PROXY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # localhost-only: onlangs через reverse-proxy (Caddy) с TLS. Для прямого
+      # доступа из LAN без прокси замените на "19001:8000".
+      - "127.0.0.1:19001:8000"
+    env_file:
+      - .env   # SOURCE_PROXY_*, ADMIN_PASSWORD, ACCOUNTS_ENC_KEY и прочее
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kwhale:${POSTGRES_PASSWORD:-kwhale}@postgres:5432/kwhale
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      SEED_USERNAME: ${SEED_USERNAME:-admin}
+      SEED_PASSWORD: ${SEED_PASSWORD:?set SEED_PASSWORD in .env}
+      SEED_EMAIL: ${SEED_EMAIL:-admin@local}
+      SEED_DISPLAY_NAME: ${SEED_DISPLAY_NAME:-admin}
+      JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-30}
+      MUSIC_DIR: /data/music
+      # The downloader runs in its own container (see `downloader` below) so a
+      # bulk re-download never competes with request handling on the API loop.
+      DOWNLOADER_ENABLED: "false"
+      EPHEMERAL_TTL_DAYS: ${EPHEMERAL_TTL_DAYS:-14}
+      UNLIKE_GRACE_DAYS: ${UNLIKE_GRACE_DAYS:-14}
+      ICM_PARTNER_KEY: ${ICM_PARTNER_KEY}
+      ICM_BASE_URL: ${ICM_BASE_URL:-https://byicloud.online}
+      ICM_REGION: ${ICM_REGION:-us}
+      ICM_FALLBACK_REGION: ${ICM_FALLBACK_REGION:-ru}
+      ICM_QUALITY: ${ICM_QUALITY:-256K}
+      ICM_KEEPALIVE_HOURS: ${ICM_KEEPALIVE_HOURS:-24}
+      YANDEX_MUSIC_TOKEN: ${YANDEX_MUSIC_TOKEN:-}
+      SOUNDCLOUD_CLIENT_ID: ${SOUNDCLOUD_CLIENT_ID:-}
+      PROXY_ENABLED: ${PROXY_ENABLED:-true}
+      SOURCE_PROXY_DEFAULT: ${SOURCE_PROXY_DEFAULT:-}
+      VPN_PROXY: ${VPN_PROXY:-}
+      ACOUSTID_CLIENT: ${ACOUSTID_CLIENT:-v8pQ6oyB}
+      SHAZAM_PROXY: ${SHAZAM_PROXY:-}
+      DROPBOX_STABLE_SECONDS: ${DROPBOX_STABLE_SECONDS:-30}
+      STREAM_CACHE_MAX_MB: ${STREAM_CACHE_MAX_MB:-200}
+      STREAM_CACHE_TTL_HOURS: ${STREAM_CACHE_TTL_HOURS:-2.0}
+      EVENTS_RETENTION_DAYS: ${EVENTS_RETENTION_DAYS:-180}
+    volumes:
+      - ./data/music:/data/music
+    networks:
+      - default
+    mem_limit: 2g
+    pids_limit: 512
+    restart: unless-stopped
+
+  indexer:
+    build:
+      context: ./server
+      args:
+        PIP_PROXY: ${PIP_PROXY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kwhale:${POSTGRES_PASSWORD:-kwhale}@postgres:5432/kwhale
+      MUSIC_DIR: /data/music
+      # Each indexer worker has its own pool. Keep it tiny so scaling the
+      # worker does not exhaust Postgres max_connections for the API.
+      DB_POOL_SIZE: ${INDEXER_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${INDEXER_DB_MAX_OVERFLOW:-3}
+    volumes:
+      - ./data/music:/data/music
+    command: python -m app.indexer
+    networks:
+      - default
+    restart: unless-stopped
+
+  downloader:
+    build:
+      context: ./server
+      args:
+        PIP_PROXY: ${PIP_PROXY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kwhale:${POSTGRES_PASSWORD:-kwhale}@postgres:5432/kwhale
+      MUSIC_DIR: /data/music
+      DB_POOL_SIZE: ${DOWNLOADER_DB_POOL_SIZE:-3}
+      DB_MAX_OVERFLOW: ${DOWNLOADER_DB_MAX_OVERFLOW:-3}
+    volumes:
+      - ./data/music:/data/music
+    command: python -m app.downloader_worker
+    networks:
+      - default
+    mem_limit: 1g
+    pids_limit: 256
+    restart: unless-stopped
+
+volumes:
+  pgdata:

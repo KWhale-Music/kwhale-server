@@ -1,0 +1,1131 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KWhale — админка</title>
+<style>
+  :root {
+    --bg:#0f1419; --card:#171d24; --line:#25303b; --text:#e6edf3; --dim:#8b98a5;
+    --accent:#4da3ff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { padding:18px 28px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; }
+  header .sub { color:var(--dim); font-size:13px; }
+  nav { display:flex; gap:8px; padding:14px 28px 0; }
+  nav button { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  nav button.active { color:var(--text); border-color:var(--accent); }
+  main { padding:18px 28px 40px; max-width:1400px; }
+  .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; display:flex; flex-direction:column; gap:10px; }
+  .card h2 { font-size:15px; margin:0; display:flex; gap:10px; align-items:center; }
+  .badge { font-size:11px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+  .badge.connected,.badge.active { color:var(--ok); border-color:#2d5a38; }
+  .badge.error,.badge.disabled,.badge.revoked { color:var(--err); border-color:#5a2d2d; }
+  .badge.expired,.badge.used { color:var(--warn); border-color:#5a4a2d; }
+  .help,.dim { color:var(--dim); font-size:13px; margin:0; }
+  form { display:flex; flex-direction:column; gap:8px; }
+  label { font-size:12px; color:var(--dim); display:flex; flex-direction:column; gap:4px; }
+  input,select { background:#11171d; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:14px; }
+  input:focus,select:focus { outline:none; border-color:var(--accent); }
+  button { background:var(--accent); color:#07121f; border:0; border-radius:8px; padding:8px 14px; font-size:13px; font-weight:650; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .msg { font-size:12px; min-height:16px; }
+  .msg.ok { color:var(--ok); } .msg.err { color:var(--err); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .token { font-family:ui-monospace,monospace; background:#0b1015; padding:8px; border-radius:8px; word-break:break-all; }
+  .hidden { display:none !important; }
+  .qbar-row { display:grid; grid-template-columns:120px 1fr 70px; gap:10px; align-items:center; font-size:12px; }
+  .qbar { height:9px; border-radius:6px; background:var(--accent); min-width:2px; }
+  .qbar.unknown { background:var(--dim); }
+  .qbar.lossless { background:var(--ok); }
+  .qbar.low { background:var(--err); }
+  .qstat { font-size:26px; font-weight:650; line-height:1.1; }
+  .qstat-label { color:var(--dim); font-size:12px; }
+  .qnum { font-variant-numeric:tabular-nums; }
+  .qquality { font-weight:650; }
+</style>
+</head>
+<body>
+<header>
+  <h1>KWhale · admin</h1>
+  <span class="sub">источники, инвайты и пользователи</span>
+  <span id="who" class="sub"></span>
+  <button id="logout" class="ghost hidden">Выйти</button>
+</header>
+
+<section id="login" class="card" style="max-width:420px;margin:40px auto">
+  <h2>Вход администратора</h2>
+  <form id="loginForm">
+    <label>Email<input id="email" type="email" autocomplete="username" required></label>
+    <label>Пароль<input id="password" type="password" autocomplete="current-password" required></label>
+    <div class="row"><button type="submit">Войти</button></div>
+    <div id="loginMsg" class="msg"></div>
+  </form>
+</section>
+
+<nav id="tabs" class="hidden">
+  <button data-tab="sources" class="active">Источники</button>
+  <button data-tab="invites">Инвайты</button>
+  <button data-tab="users">Пользователи</button>
+  <button data-tab="quality">Качество</button>
+  <button data-tab="recommendations">Рекомендации</button>
+  <button data-tab="embeds">Интеграции</button>
+  <button data-tab="status">Статус</button>
+</nav>
+
+<main id="app" class="hidden">
+  <section id="tab-sources"><div id="priority" style="margin-bottom:16px"></div><div id="sources" class="grid"></div></section>
+  <section id="tab-invites" class="hidden">
+    <div class="row" style="margin-bottom:12px">
+      <button id="newInvite">Создать инвайт</button>
+      <span class="help">одноразовый токен, 7 дней</span>
+    </div>
+    <div id="inviteToken"></div>
+    <div id="invites"></div>
+  </section>
+  <section id="tab-users" class="hidden"><div id="users"></div></section>
+  <section id="tab-quality" class="hidden">
+    <div class="row" style="margin-bottom:12px">
+      <label style="flex-direction:row;align-items:center;gap:8px">Период
+        <select id="qDays">
+          <option value="7">7 дней</option>
+          <option value="30" selected>30 дней</option>
+          <option value="90">90 дней</option>
+          <option value="180">180 дней</option>
+          <option value="0">всё время</option>
+        </select>
+      </label>
+      <button id="qScan">Сканировать всю библиотеку</button>
+      <button id="qScanForce" class="ghost">Пересканировать заново</button>
+      <span id="qScanStatus" class="help"></span>
+    </div>
+    <div id="qSummary" class="grid" style="margin-bottom:16px"></div>
+    <div id="qDistribution" class="card" style="margin-bottom:16px"></div>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="qSearch" placeholder="Поиск: название или исполнитель" style="min-width:240px">
+        <select id="qFilter">
+          <option value="all">Все</option>
+          <option value="low">Ниже 192 kbps</option>
+          <option value="lossless">Только lossless</option>
+          <option value="lossy">Без lossless</option>
+          <option value="unknown">Не измерено</option>
+          <option value="unplayed">Не слушали за период</option>
+        </select>
+        <select id="qSort">
+          <option value="worst">Худшие сначала</option>
+          <option value="bitrate_asc">Битрейт ↑</option>
+          <option value="bitrate_desc">Битрейт ↓</option>
+          <option value="plays_desc">Чаще слушают</option>
+          <option value="downloaded_desc">Свежие загрузки</option>
+          <option value="title">По названию</option>
+        </select>
+        <button id="qApply">Применить</button>
+        <button id="qRedownload" class="ghost">Перекачать выбранные</button>
+        <button id="qDelete" class="ghost">Удалить выбранные</button>
+      </div>
+      <div id="qTable"><p class="help">загрузка…</p></div>
+      <div id="qPager" class="row" style="margin-top:10px"></div>
+      <p class="help" id="qNote">
+        Lossless определяется по кодеку файла (FLAC/ALAC, в том числе FLAC внутри m4a),
+        а не по расширению. Удаление перемещает файл в <code>_orphaned/quality/</code>;
+        загруженные пользователем файлы защищены. Перекачка сначала скачивает и проверяет
+        новый файл, и только потом убирает старый.
+      </p>
+    </div>
+  </section>
+  <section id="tab-recommendations" class="hidden">
+    <div id="recs"><p class="help">загрузка…</p></div>
+  </section>
+  <section id="tab-embeds" class="hidden">
+    <div class="card" style="margin-bottom:16px">
+      <h2>Настройки Edge и публикации виджетов</h2>
+      <div class="row">
+        <label style="flex:1;min-width:260px">Публичный Edge URL (для HTML &lt;iframe&gt; и прогрева кэша)
+          <input id="eEdgeBaseUrl" type="url" placeholder="https://music.example.org (пусто = текущий хост админки)">
+        </label>
+        <button id="eSaveEdgeUrl" class="ghost" type="button" style="align-self:flex-end">Сохранить по умолчанию</button>
+      </div>
+      <p class="help">При выпуске интеграции треки автоматически ставятся в очередь скачивания на Home-сервер и прогреваются на Edge-прокси (если задан публичный Edge URL).</p>
+    </div>
+
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr));margin-bottom:16px">
+      <div class="card">
+        <h2>Выпустить интеграцию для сайта</h2>
+        <div class="row">
+          <select id="eKind" aria-label="Тип сущности">
+            <option value="track">Трек</option>
+            <option value="album">Альбом</option>
+            <option value="artist">Исполнитель</option>
+          </select>
+          <input id="eSearchQuery" type="text" placeholder="Название, артист или ID…" style="flex:1;min-width:180px">
+          <button id="eSearchBtn" type="button">Найти</button>
+        </div>
+        <div id="eSearchResults" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+
+        <form id="eCreateForm" style="margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
+          <div id="eSelectedBox" class="help">Выберите трек, альбом или исполнителя из поиска выше (или введите ID).</div>
+          <div class="row">
+            <label style="width:130px">ID сущности
+              <input id="eEntityId" type="number" min="1" required placeholder="ID">
+            </label>
+            <label style="flex:1;min-width:180px">Заголовок карточки (необязательно)
+              <input id="eTitleOverride" type="text" placeholder="По умолчанию из базы">
+            </label>
+          </div>
+          <div class="row">
+            <label style="flex:1">Тема виджета
+              <select id="eTheme">
+                <option value="auto">Системная (Auto)</option>
+                <option value="dark">Тёмная</option>
+                <option value="light">Светлая</option>
+              </select>
+            </label>
+            <label style="flex:1">Формат
+              <select id="eLayout">
+                <option value="auto">Авто (Яндекс-формат)</option>
+                <option value="compact">Компактный (180px)</option>
+                <option value="full">С треклистом (400px)</option>
+              </select>
+            </label>
+          </div>
+          <label>Разрешённые домены (<code>frame-ancestors</code>; пусто = разрешено везде)
+            <input id="eAllowedOrigins" type="text" placeholder="example.com, *.blog.ru, https://site.org">
+          </label>
+          <div class="row">
+            <button id="eCreateSubmit" type="submit">Выпустить виджет и прогреть Home + Edge</button>
+          </div>
+          <div id="eCreateMsg" class="msg"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Превью и HTML-код <code>&lt;iframe&gt;</code></h2>
+        <p id="ePreviewMeta" class="help">Выберите или создайте интеграцию, чтобы увидеть превью карточки и скопировать код вставки.</p>
+        <div id="ePreviewFrameWrap" style="min-height:180px;display:flex;align-items:center;justify-content:center;background:#0b1015;border:1px dashed var(--line);border-radius:12px;padding:10px">
+          <span class="dim">Нет выбранной интеграции</span>
+        </div>
+        <label>Код вставки для сайта
+          <textarea id="eSnippet" rows="3" readonly style="background:#0b1015;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12px/1.4 ui-monospace,monospace;resize:vertical"></textarea>
+        </label>
+        <div class="row">
+          <button id="eCopySnippet" type="button">Скопировать &lt;iframe&gt;</button>
+          <button id="eOpenNewTab" type="button" class="ghost">Открыть URL</button>
+          <span id="eCopyMsg" class="msg"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2>Выпущенные интеграции</h2>
+        <button id="eRefreshBtn" type="button" class="ghost">Обновить</button>
+      </div>
+      <div id="embedsTable"><p class="help">загрузка…</p></div>
+    </div>
+  </section>
+  <section id="tab-status" class="hidden"><div id="status"></div></section>
+</main>
+
+<script>
+const TOKEN_KEY = "kwhale_admin_token";
+const REFRESH_KEY = "kwhale_admin_refresh";
+let token = localStorage.getItem(TOKEN_KEY) || "";
+let refreshToken = localStorage.getItem(REFRESH_KEY) || "";
+let refreshing = null;
+
+const STATUS_RU = {
+  connected:"подключён", expired:"сессия истекла", error:"ошибка", disabled:"выключен",
+  missing_key:"нет ключа в .env", disconnected:"не подключён",
+};
+
+function esc(v) { return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+async function refreshSession() {
+  if (!refreshToken) return false;
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const r = await fetch("/v1/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!r.ok) return false;
+      const auth = await r.json();
+      token = auth.accessToken || "";
+      refreshToken = auth.refreshToken || refreshToken;
+      localStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(REFRESH_KEY, refreshToken);
+      return !!token;
+    } catch {
+      return false;
+    }
+  })();
+  try { return await refreshing; } finally { refreshing = null; }
+}
+
+async function api(path, opts = {}, retried = false) {
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (opts.body && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  const r = await fetch(path, { ...opts, headers });
+  if (r.status === 401) {
+    if (!retried && await refreshSession()) return api(path, opts, true);
+    logout();
+    throw new Error("Требуется вход");
+  }
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try { const j = await r.json(); msg = j.detail || j.title || j.error?.message || msg; } catch {}
+    throw new Error(msg);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+function el(tag, attrs = {}, children = []) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v;
+    else if (k === "text") n.textContent = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if (k === "html") n.innerHTML = v;
+    else n.setAttribute(k, v);
+  }
+  for (const c of children) n.append(c);
+  return n;
+}
+
+function logout() {
+  token = "";
+  refreshToken = "";
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  document.getElementById("login").classList.remove("hidden");
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("tabs").classList.add("hidden");
+  document.getElementById("logout").classList.add("hidden");
+  document.getElementById("who").textContent = "";
+}
+
+async function showAdmin(me) {
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("tabs").classList.remove("hidden");
+  document.getElementById("logout").classList.remove("hidden");
+  document.getElementById("who").textContent = `${me.displayName || me.email} · ${me.role}`;
+  await loadTab("sources");
+}
+
+document.getElementById("loginForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const msg = document.getElementById("loginMsg");
+  msg.textContent = "";
+  try {
+    const r = await fetch("/v1/auth/login", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ email: document.getElementById("email").value, password: document.getElementById("password").value }),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); throw new Error(j.detail || `HTTP ${r.status}`); }
+    const auth = await r.json();
+    token = auth.accessToken;
+    refreshToken = auth.refreshToken || "";
+    localStorage.setItem(TOKEN_KEY, token);
+    if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+    const me = await api("/admin/api/me");
+    if (me.role !== "admin") { logout(); throw new Error("Нужна роль admin"); }
+    await showAdmin(me);
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+});
+
+document.getElementById("logout").addEventListener("click", logout);
+
+document.querySelectorAll("#tabs button").forEach(btn => btn.addEventListener("click", () => loadTab(btn.dataset.tab)));
+
+async function loadTab(name) {
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  for (const id of ["sources","invites","users","quality","recommendations","embeds","status"]) {
+    document.getElementById(`tab-${id}`).classList.toggle("hidden", id !== name);
+  }
+  if (name === "sources") await loadSources();
+  if (name === "invites") await loadInvites();
+  if (name === "users") await loadUsers();
+  if (name === "quality") await loadQuality();
+  if (name === "recommendations") await loadRecommendations();
+  if (name === "embeds") await loadEmbeds();
+  if (name === "status") await loadStatus();
+}
+
+async function loadRecommendations() {
+  const root = document.getElementById("recs");
+  root.innerHTML = `<p class="help">загрузка…</p>`;
+  try {
+    const o = await api("/admin/api/recommendations/overview");
+    const pct = o.features.local ? Math.round(100 * o.features.total / o.features.local) : 0;
+    const jobs = o.indexJobs.map(j => `<span class="pill">${esc(j.kind)}/${esc(j.status)}: ${j.count}</span>`).join(" ");
+    const profileRows = o.profiles.map(p => `<tr><td>${esc(p.label)}</td><td class="qnum">${p.version}</td><td class="dim">${esc(p.updatedAt || "—")}</td></tr>`).join("");
+    const eventRows = o.events.byType.map(e => `<tr><td>${esc(e.type)}</td><td class="qnum">${e.count}</td><td class="dim">${esc(e.lastEvent || "—")}</td></tr>`).join("");
+    const weeklyRows = o.weekly.map(w => `<tr><td>${w.userId}</td><td>${w.playlistId ?? "—"}</td><td class="qnum">${w.tracks}</td><td class="dim">${esc(w.updatedAt || "—")}</td></tr>`).join("");
+    root.innerHTML = `
+      <div class="grid" style="margin-bottom:16px">
+        <div class="card"><h3>Features & Tags</h3><p><b>${o.features.total}</b> из <b>${o.features.local}</b> локальных (${pct}%)</p><p class="dim">full DSP ${o.features.withFullDsp ?? 0} · tags ${o.features.withTags ?? 0} (LLM ${o.features.llmTagged ?? 0}) · last ${esc(o.features.lastIndexed || "—")}</p></div>
+        <div class="card"><h3>Giga embeddings</h3><p><b>${o.embeddings.total}</b> <span class="dim">(v2: ${o.embeddings.v2Total ?? 0})</span></p><p class="dim">${esc(o.embeddings.model)} · last ${esc(o.embeddings.lastIndexed || "—")}</p></div>
+        <div class="card"><h3>Audio embeddings</h3><p><b>${(o.audioEmbeddings && o.audioEmbeddings.total) ?? 0}</b> <span class="dim">(v2: ${(o.audioEmbeddings && o.audioEmbeddings.v2Total) ?? 0})</span></p><p class="dim">${esc((o.audioEmbeddings && o.audioEmbeddings.model) || "—")}</p></div>
+        <div class="card"><h3>Profiles</h3><p><b>${o.profiles.length}</b></p><p class="dim">scoring_profiles</p></div>
+        <div class="card"><h3>Events</h3><p><b>${o.events.total}</b></p><p class="dim">${o.events.byType.length} типов</p></div>
+      </div>
+      <div class="card" style="margin-bottom:16px"><h3>Index jobs</h3><p>${jobs || "<span class=dim>нет</span>"}</p></div>
+      <div class="card" style="margin-bottom:16px"><h3>Scoring profiles</h3><table><thead><tr><th>Label</th><th>Version</th><th>Updated</th></tr></thead><tbody>${profileRows || "<tr><td colspan=3 class=dim>пусто</td></tr>"}</tbody></table></div>
+      <div class="card" style="margin-bottom:16px"><h3>События по типам</h3><table><thead><tr><th>Тип</th><th>Кол-во</th><th>Последнее</th></tr></thead><tbody>${eventRows || "<tr><td colspan=3 class=dim>пусто</td></tr>"}</tbody></table></div>
+      <div class="card"><h3>Weekly releases</h3><table><thead><tr><th>User</th><th>Playlist</th><th>Tracks</th><th>Updated</th></tr></thead><tbody>${weeklyRows || "<tr><td colspan=4 class=dim>пусто</td></tr>"}</tbody></table></div>`;
+  } catch (e) {
+    root.innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+  }
+}
+
+async function loadSources() {
+  const root = document.getElementById("sources");
+  const prio = document.getElementById("priority");
+  root.innerHTML = `<p class="help">загрузка…</p>`;
+  prio.innerHTML = "";
+  try {
+    const [data, priority, proxyCfg] = await Promise.all([
+      api("/admin/api/sources"),
+      api("/admin/api/metadata-priority"),
+      api("/admin/api/proxy"),
+    ]);
+    prio.append(renderProxy(proxyCfg), renderPriority(priority.items));
+    root.innerHTML = "";
+    for (const s of data.items) root.append(renderSource(s));
+  } catch (e) { root.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+
+function renderProxy(cfg) {
+  const card = el("div", {class:"card", style:"margin-bottom:16px"});
+  card.append(el("h2", {text:"Сеть и прокси (Модульная маршрутизация)"}));
+  card.append(el("p", {class:"help", text:"Если на хосте уже поднят системный VPN — выключите прокси, и весь трафик пойдёт напрямую. Иначе укажите глобальный SOCKS5/HTTP прокси (например, socks5h://singbox:2080) и/или точечные оверрайды."}));
+  const cb = el("input", {type:"checkbox"});
+  cb.checked = !!cfg.enabled;
+  const toggleRow = el("label", {class:"row", style:"color:var(--text);font-size:14px"}, [cb, document.createTextNode("Использовать прокси-маршрутизацию (выкл = всё напрямую)")]);
+  const defInput = el("input", {type:"text", placeholder:"socks5h://singbox:2080 (пусто = напрямую)", value: cfg.defaultProxy || ""});
+  const ovStr = Object.entries(cfg.overrides || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+  const ovInput = el("input", {type:"text", placeholder:"deezer=socks5h://127.0.0.1:1080, yandex=direct", value: ovStr});
+  const msg = el("div", {class:"msg"});
+  const btn = el("button", {text:"Применить без рестарта"});
+  btn.addEventListener("click", async () => {
+    try {
+      const overrides = {};
+      for (const part of ovInput.value.split(",")) {
+        const [k, ...rest] = part.split("=");
+        if (k && rest.length) overrides[k.trim()] = rest.join("=").trim();
+      }
+      await api("/admin/api/proxy", {
+        method:"PUT",
+        body:JSON.stringify({enabled: cb.checked, defaultProxy: defInput.value.trim(), overrides}),
+      });
+      msg.className = "msg ok"; msg.textContent = "маршрутизация обновлена";
+      setTimeout(loadSources, 400);
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  });
+  card.append(
+    toggleRow,
+    el("label", {}, [document.createTextNode("Прокси по умолчанию (для зарубежных источников, yt-dlp, Shazam)"), defInput]),
+    el("label", {}, [document.createTextNode("Точечные оверрайды по источникам (source=proxy или source=direct)"), ovInput]),
+    el("div", {class:"row"}, [btn]),
+    msg
+  );
+  return card;
+}
+
+function renderPriority(items) {
+  const card = el("div", {class:"card"});
+  card.append(el("h2", {text:"Приоритет метаданных"}));
+  card.append(el("p", {class:"help", text:"Источники выше — их метаданные выбираются первыми. Меняется без рестарта."}));
+  const input = el("input", {type:"text", value: items.map(i => i.connector).join(", ")});
+  const msg = el("div", {class:"msg"});
+  const btn = el("button", {text:"Сохранить"});
+  btn.addEventListener("click", async () => {
+    try {
+      const order = input.value.split(",").map(x => x.trim()).filter(Boolean);
+      await api("/admin/api/metadata-priority", {method:"PUT", body:JSON.stringify({order})});
+      msg.className = "msg ok"; msg.textContent = "сохранено";
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  });
+  card.append(input, el("div", {class:"row"}, [btn]), msg);
+  return card;
+}
+
+function renderSource(s) {
+  const card = el("div", {class:"card"});
+  const badge = el("span", {class:"badge " + (s.enabled ? s.status : "disabled"), text: s.enabled ? (STATUS_RU[s.status] || s.status) : "выключен"});
+  card.append(el("h2", {}, [document.createTextNode(s.label), badge]));
+  if (s.playback) card.append(el("div", {class:"help", text:s.playback}));
+  if (s.effectiveProxy) card.append(el("div", {class:"help", text:`Маршрут: ${s.effectiveProxy}`}));
+  card.append(el("p", {class:"help", text:s.help || ""}));
+  if (s.profile && Object.keys(s.profile).length) {
+    card.append(el("pre", {class:"token", text: JSON.stringify(s.profile, null, 2)}));
+  }
+  const msg = el("div", {class:"msg"});
+  const say = (t, ok=true) => { msg.className = "msg " + (ok ? "ok" : "err"); msg.textContent = t; };
+
+  if (s.auth !== "env") {
+    const form = el("form");
+    const inputs = {};
+    const fields = [...(s.fields || []).map(f=>({f, required:true})), ...(s.optional_fields || []).map(f=>({f, required:false})), ...(s.alt_fields || []).map(f=>({f, required:false}))];
+    for (const {f, required} of fields) {
+      const type = /password|token|arl|p$|remixnttpid/i.test(f) ? "password" : "text";
+      const input = el("input", {type, autocomplete:"off"});
+      inputs[f] = input;
+      form.append(el("label", {}, [document.createTextNode((s.field_help?.[f] || f) + (required ? "" : " (необязательно)")), input]));
+    }
+    const btn = el("button", {type:"submit", text:"Подключить"});
+    form.addEventListener("submit", async ev => {
+      ev.preventDefault(); btn.disabled = true;
+      try {
+        const payload = {};
+        for (const [f, i] of Object.entries(inputs)) if (i.value.trim()) payload[f] = i.value.trim();
+        await api(`/admin/api/sources/${s.name}/connect`, {method:"POST", body:JSON.stringify({fields:payload})});
+        say("подключено"); setTimeout(loadSources, 500);
+      } catch (e) { say(e.message, false); }
+      btn.disabled = false;
+    });
+    form.append(el("div", {class:"row"}, [btn]));
+    card.append(form);
+  }
+
+  const row = el("div", {class:"row"});
+  if (s.connected) {
+    row.append(el("button", {class:"ghost", text:"Проверить", onclick: async () => {
+      try { const r = await api(`/admin/api/sources/${s.name}/check`, {method:"POST"}); say(r.message || "ok", r.ok); if (r.ok) setTimeout(loadSources, 500); }
+      catch (e) { say(e.message, false); }
+    }}));
+    row.append(el("button", {class:"ghost", text:"Отключить", onclick: async () => {
+      try { await api(`/admin/api/sources/${s.name}`, {method:"DELETE"}); say("отключено"); setTimeout(loadSources, 400); }
+      catch (e) { say(e.message, false); }
+    }}));
+  }
+  const cb = el("input", {type:"checkbox"});
+  cb.checked = !!s.enabled;
+  cb.addEventListener("change", async () => {
+    try { await api(`/admin/api/sources/${s.name}/enabled`, {method:"POST", body:JSON.stringify({enabled:cb.checked})}); say(cb.checked ? "включён" : "выключен"); }
+    catch (e) { say(e.message, false); cb.checked = !cb.checked; }
+  });
+  row.append(el("label", {class:"row"}, [cb, document.createTextNode("участвует в поиске")]));
+  card.append(row, msg);
+  return card;
+}
+
+async function loadInvites() {
+  const root = document.getElementById("invites");
+  root.innerHTML = `<p class="help">загрузка…</p>`;
+  try {
+    const data = await api("/admin/api/invites");
+    const rows = data.items.map(i => `<tr>
+      <td>${esc(i.id)}</td><td>${esc(i.status)}</td><td>${esc(i.createdAt)}</td><td>${esc(i.expiresAt)}</td>
+      <td>${esc(i.createdBy || "")}</td><td>${esc(i.usedBy || "")}</td>
+      <td>${i.status === "active" ? `<button class="ghost" onclick="revokeInvite('${esc(i.id)}')">Отозвать</button>` : ""}</td>
+    </tr>`).join("");
+    root.innerHTML = `<table><thead><tr><th>ID</th><th>Статус</th><th>Создан</th><th>Истекает</th><th>Создал</th><th>Использовал</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { root.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+
+document.getElementById("newInvite").addEventListener("click", async () => {
+  const box = document.getElementById("inviteToken");
+  try {
+    const inv = await api("/admin/api/invites", {method:"POST", body:JSON.stringify({days:7})});
+    box.innerHTML = `<p class="help">Скопируйте токен сейчас — он больше не показывается:</p><div class="token">${esc(inv.token)}</div>`;
+    await loadInvites();
+  } catch (e) { box.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+});
+
+async function revokeInvite(id) {
+  try { await api(`/admin/api/invites/${id}`, {method:"DELETE"}); await loadInvites(); }
+  catch (e) { alert(e.message); }
+}
+
+async function loadUsers() {
+  const root = document.getElementById("users");
+  root.innerHTML = `<p class="help">загрузка…</p>`;
+  try {
+    const data = await api("/admin/api/users");
+    const rows = data.items.map(u => `<tr>
+      <td>${esc(u.id)}</td><td>${esc(u.email || "")}</td><td>${esc(u.displayName || "")}</td>
+      <td><select onchange="setUserRole('${esc(u.id)}', this.value)">
+        <option value="user" ${u.role === "user" ? "selected" : ""}>user</option>
+        <option value="admin" ${u.role === "admin" ? "selected" : ""}>admin</option>
+      </select></td><td>${esc(u.createdAt || "")}</td>
+    </tr>`).join("");
+    root.innerHTML = `<table><thead><tr><th>ID</th><th>Email</th><th>Имя</th><th>Роль</th><th>Создан</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { root.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+
+async function setUserRole(id, role) {
+  try { await api(`/admin/api/users/${id}`, {method:"PATCH", body:JSON.stringify({role})}); }
+  catch (e) { alert(e.message); await loadUsers(); }
+}
+
+async function loadStatus() {
+  const root = document.getElementById("status");
+  root.innerHTML = `<p class="help">загрузка…</p>`;
+  try {
+    const data = await api("/admin/api/status");
+    root.innerHTML = `<pre class="token">${esc(JSON.stringify(data, null, 2))}</pre>`;
+  } catch (e) { root.innerHTML = `<p class="msg err">${esc(e.message)}</p>`; }
+}
+
+// ── Quality tab ─────────────────────────────────────────────────────────────
+
+const Q = {
+  days: 30,
+  limit: 50,
+  offset: 0,
+  filter: "all",
+  sort: "worst",
+  query: "",
+  selected: new Set(),
+  items: [],
+  scanTimer: null,
+  scanFinished: null,
+};
+
+function qParams() {
+  const p = new URLSearchParams();
+  p.set("days", Q.days);
+  p.set("limit", Q.limit);
+  p.set("offset", Q.offset);
+  p.set("sort", Q.sort);
+  if (Q.query) p.set("q", Q.query);
+  if (Q.filter === "low") p.set("maxBitrate", "191");
+  if (Q.filter === "lossless") p.set("lossless", "true");
+  if (Q.filter === "lossy") p.set("lossless", "false");
+  if (Q.filter === "unknown") p.set("tier", "0");
+  if (Q.filter === "unplayed") p.set("played", "false");
+  return p;
+}
+
+function fmtQuality(q) {
+  if (!q) return `<span class="dim">не измерено</span>`;
+  if (q.error) {
+    return `<span class="badge error" title="${esc(q.error)}">ошибка чтения</span>`;
+  }
+  if (q.lossless) {
+    const bits = q.bitDepth ? `${q.bitDepth}-bit` : "lossless";
+    const sr = q.sampleRate ? ` · ${Math.round(q.sampleRate / 1000)} kHz` : "";
+    return `<span class="qquality">${esc((q.codec || "flac").toUpperCase())}</span> <span class="dim">${bits}${sr}</span>`;
+  }
+  const br = q.bitrateKbps ? `${q.bitrateKbps} kbps` : "?";
+  return `<span class="qquality">${esc((q.codec || "?").toUpperCase())} ${br}</span>`;
+}
+
+function fmtDate(v) { return v ? String(v).slice(0, 10) : "—"; }
+
+function qualityCard(title, s, played = false) {
+  const share = Math.round((s.losslessShare || 0) * 100);
+  const avg = s.avgLossyBitrateKbps != null ? `${s.avgLossyBitrateKbps} kbps` : "—";
+  const missing = played
+    ? `без файла: <b>${s.estimated ?? s.unknown}</b>`
+    : `не измерено: <b>${s.unknown}</b>`;
+  const bytes = s.bytes ? ` · ${(s.bytes / 1024 / 1024 / 1024).toFixed(1)} ГБ` : "";
+  return `<div class="card">
+    <h2>${esc(title)}</h2>
+    <div><span class="qstat qnum">${s.tracks}</span> <span class="qstat-label">треков</span></div>
+    <div class="help">Lossless: <b>${s.lossless}</b> (${share}%) · ${missing}${bytes}</div>
+    <div class="help">Средний битрейт lossy: <b>${avg}</b></div>
+    <div class="help">Ниже 192 kbps: <b>${s.below192}</b></div>
+  </div>`;
+}
+
+function renderQualitySummary(o) {
+  const period = o.days ? `за ${o.days} дн.` : "за всё время";
+  document.getElementById("qSummary").innerHTML =
+    qualityCard("Сейчас в библиотеке", o.library) +
+    qualityCard(`Скачано ${period}`, o.downloaded) +
+    qualityCard(`Прослушано ${period}`, o.played, true);
+}
+
+function renderQualityDistribution(lib) {
+  const labels = [
+    ["lossless", "FLAC / lossless", "lossless"],
+    ["gte320", "320+ kbps", ""],
+    ["b256", "256–319", ""],
+    ["b192", "192–255", ""],
+    ["b128", "128–191", ""],
+    ["low128", "< 128", "low"],
+    ["unknown", "не измерено", "unknown"],
+  ];
+  const max = Math.max(1, ...labels.map(([k]) => lib.distribution[k] || 0));
+  const rows = labels.map(([k, label, cls]) => {
+    const v = lib.distribution[k] || 0;
+    const pct = lib.tracks ? Math.round(v / lib.tracks * 100) : 0;
+    const width = Math.max(1, Math.round(v / max * 100));
+    return `<div class="qbar-row">
+      <span class="dim">${label}</span>
+      <div><div class="qbar ${cls}" style="width:${width}%"></div></div>
+      <span class="qnum">${v} · ${pct}%</span>
+    </div>`;
+  }).join("");
+  document.getElementById("qDistribution").innerHTML =
+    `<h2>Распределение в библиотеке</h2>${rows}`;
+}
+
+function updateQualityBulk() {
+  const disabled = Q.selected.size === 0;
+  document.getElementById("qRedownload").disabled = disabled;
+  document.getElementById("qDelete").disabled = disabled;
+}
+
+function renderQualityTable(page) {
+  Q.items = page.items || [];
+  Q.selected.clear();
+  updateQualityBulk();
+  const root = document.getElementById("qTable");
+  if (!Q.items.length) {
+    root.innerHTML = `<p class="help">Ничего не найдено. Если скан ещё не запускался — нажмите «Сканировать всю библиотеку».</p>`;
+    renderQualityPager(page);
+    return;
+  }
+  const rows = Q.items.map(i => {
+    const best = i.best
+      ? `${esc(i.best.label)}${i.canUpgrade ? ` <span class="badge active">можно лучше</span>` : ""}`
+      : `<span class="dim">нет источника</span>`;
+    const permanent = !!i.permanent;
+    const actions = permanent
+      ? `<span class="badge">загруженный файл</span>`
+      : `<div class="row">
+           <button class="ghost" ${i.canUpgrade ? "" : "disabled"} onclick="qRedownloadOne('${esc(i.id)}')">Перекачать</button>
+           <button class="ghost" onclick="qDeleteOne('${esc(i.id)}')">Удалить</button>
+         </div>`;
+    return `<tr>
+      <td><input class="qCheck" type="checkbox" data-id="${esc(i.id)}" ${permanent ? "disabled" : ""}></td>
+      <td><b>${esc(i.title)}</b><div class="dim">${esc((i.artists || []).join(", "))}</div></td>
+      <td>${fmtQuality(i.quality)}</td>
+      <td>${best}</td>
+      <td class="qnum">${i.plays}</td>
+      <td class="dim">${fmtDate(i.downloadedAt)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table>
+    <thead><tr>
+      <th><input id="qAll" type="checkbox" title="Выбрать все на странице"></th>
+      <th>Трек</th><th>Качество</th><th>Лучший источник</th>
+      <th>Прослушиваний</th><th>Скачан</th><th></th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  root.querySelectorAll(".qCheck").forEach(cb => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) Q.selected.add(cb.dataset.id);
+      else Q.selected.delete(cb.dataset.id);
+      updateQualityBulk();
+    });
+  });
+  const all = document.getElementById("qAll");
+  if (all) {
+    all.addEventListener("change", () => {
+      root.querySelectorAll(".qCheck:not(:disabled)").forEach(cb => {
+        cb.checked = all.checked;
+        if (all.checked) Q.selected.add(cb.dataset.id);
+        else Q.selected.delete(cb.dataset.id);
+      });
+      updateQualityBulk();
+    });
+  }
+  renderQualityPager(page);
+}
+
+function renderQualityPager(page) {
+  const pager = document.getElementById("qPager");
+  const total = page.total || 0;
+  const pages = Math.max(1, Math.ceil(total / Q.limit));
+  const current = Math.floor(Q.offset / Q.limit) + 1;
+  pager.innerHTML = `
+    <button class="ghost" id="qPrev" ${Q.offset <= 0 ? "disabled" : ""}>←</button>
+    <span class="help">${current} / ${pages} · всего ${total}</span>
+    <button class="ghost" id="qNext" ${Q.offset + Q.limit >= total ? "disabled" : ""}>→</button>`;
+  document.getElementById("qPrev")?.addEventListener("click", () => {
+    Q.offset = Math.max(0, Q.offset - Q.limit);
+    loadQuality();
+  });
+  document.getElementById("qNext")?.addEventListener("click", () => {
+    Q.offset += Q.limit;
+    loadQuality();
+  });
+}
+
+async function loadQuality() {
+  document.getElementById("qSummary").innerHTML = `<p class="help">загрузка…</p>`;
+  document.getElementById("qDistribution").innerHTML = "";
+  document.getElementById("qTable").innerHTML = `<p class="help">загрузка…</p>`;
+  document.getElementById("qPager").innerHTML = "";
+  try {
+    const [overview, page] = await Promise.all([
+      api(`/admin/api/quality/overview?days=${Q.days}`),
+      api(`/admin/api/quality/tracks?${qParams().toString()}`),
+    ]);
+    renderQualitySummary(overview);
+    renderQualityDistribution(overview.library);
+    renderQualityTable(page);
+    await refreshScanStatus();
+  } catch (e) {
+    document.getElementById("qTable").innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+  }
+}
+
+async function refreshScanStatus() {
+  try {
+    const s = await api("/admin/api/quality/scan");
+    const label = document.getElementById("qScanStatus");
+    if (s.running) {
+      label.textContent = `скан: ${s.scanned}/${s.total || "?"} · ошибок ${s.errors}`;
+      if (!Q.scanTimer) Q.scanTimer = setInterval(refreshScanStatus, 2000);
+      return;
+    }
+    if (Q.scanTimer) { clearInterval(Q.scanTimer); Q.scanTimer = null; }
+    if (s.finishedAt) {
+      label.textContent = `последний скан: ${s.scanned}/${s.total}, ошибок ${s.errors}`;
+      if (Q.scanFinished !== s.finishedAt) {
+        Q.scanFinished = s.finishedAt;
+        await loadQuality();
+      }
+    }
+  } catch { /* the tab may be showing a login error */ }
+}
+
+async function startQualityScan(force) {
+  try {
+    const res = await api("/admin/api/quality/rescan", {
+      method: "POST",
+      body: JSON.stringify({ all: true, force }),
+    });
+    if (res.started === false) alert("Скан уже идёт");
+    await refreshScanStatus();
+  } catch (e) { alert(e.message); }
+}
+
+async function qBulkRedownload(ids) {
+  if (!ids.length) return;
+  try {
+    const res = await api("/admin/api/quality/redownload", {
+      method: "POST",
+      body: JSON.stringify({ trackIds: ids.map(Number) }),
+    });
+    const skipped = (res.skipped || []).length;
+    alert(`Поставлено в очередь: ${res.queued}. Пропущено: ${skipped}.`);
+    await loadQuality();
+  } catch (e) { alert(e.message); }
+}
+
+async function qBulkDelete(ids) {
+  if (!ids.length) return;
+  if (!confirm(`Удалить ${ids.length} локальных файлов?\nОни будут перемещены в _orphaned/quality (обратимо).`)) return;
+  try {
+    const res = await api("/admin/api/quality/delete", {
+      method: "POST",
+      body: JSON.stringify({ trackIds: ids.map(Number) }),
+    });
+    const skipped = (res.skipped || []).length;
+    alert(`Удалено файлов: ${res.deletedFiles}. Освобождено: ${(res.bytesFreed / 1024 / 1024).toFixed(1)} МБ. Пропущено: ${skipped}.`);
+    await loadQuality();
+  } catch (e) { alert(e.message); }
+}
+
+function qRedownloadOne(id) { qBulkRedownload([id]); }
+function qDeleteOne(id) { qBulkDelete([id]); }
+
+document.getElementById("qApply").addEventListener("click", () => {
+  Q.query = document.getElementById("qSearch").value.trim();
+  Q.filter = document.getElementById("qFilter").value;
+  Q.sort = document.getElementById("qSort").value;
+  Q.offset = 0;
+  loadQuality();
+});
+document.getElementById("qSearch").addEventListener("keydown", ev => {
+  if (ev.key === "Enter") document.getElementById("qApply").click();
+});
+document.getElementById("qDays").addEventListener("change", () => {
+  Q.days = Number(document.getElementById("qDays").value);
+  Q.offset = 0;
+  loadQuality();
+});
+document.getElementById("qScan").addEventListener("click", () => startQualityScan(false));
+document.getElementById("qScanForce").addEventListener("click", () => startQualityScan(true));
+document.getElementById("qRedownload").addEventListener("click", () => qBulkRedownload([...Q.selected]));
+document.getElementById("qDelete").addEventListener("click", () => qBulkDelete([...Q.selected]));
+updateQualityBulk();
+
+// ── Embeds tab ──────────────────────────────────────────────────────────────
+
+const EMBED_EDGE_KEY = "kwhale_admin_edge_base_url";
+const KIND_RU = { track:"трек", album:"альбом", artist:"артист" };
+let E = { items: [], configEdge: "", previewItem: null };
+
+function currentEdgeBase() {
+  const v = (document.getElementById("eEdgeBaseUrl").value || "").trim().replace(/\/+$/, "");
+  if (v) return v;
+  const host = window.location.hostname;
+  if (host && host !== "127.0.0.1" && host !== "localhost" && !host.startsWith("192.168.")) {
+    return window.location.origin;
+  }
+  return "";
+}
+
+function iframeHeightFor(item) {
+  if (!item) return 180;
+  if (item.layout === "compact") return 180;
+  if (item.layout === "full") return 400;
+  return item.kind === "track" ? 180 : 400;
+}
+
+function buildIframeHtml(item) {
+  const base = currentEdgeBase() || item.effectiveEdgeBaseUrl || window.location.origin;
+  const src = `${base.replace(/\/+$/, "")}${item.embedPath}`;
+  const h = iframeHeightFor(item);
+  return `<iframe frameborder="0" allow="autoplay; clipboard-write; encrypted-media" style="border:none;width:100%;height:${h}px;" width="100%" height="${h}" src="${src}"></iframe>`;
+}
+
+function showEmbedPreview(item) {
+  E.previewItem = item;
+  const wrap = document.getElementById("ePreviewFrameWrap");
+  const meta = document.getElementById("ePreviewMeta");
+  const ta = document.getElementById("eSnippet");
+  if (!item) {
+    meta.textContent = "Выберите или создайте интеграцию, чтобы увидеть превью.";
+    wrap.innerHTML = `<span class="dim">Нет выбранной интеграции</span>`;
+    ta.value = "";
+    return;
+  }
+  const h = iframeHeightFor(item);
+  const localSrc = `${item.embedPath}?theme=${encodeURIComponent(item.theme)}&layout=${encodeURIComponent(item.layout)}`;
+  meta.textContent = `${item.title}${item.subtitle ? " — " + item.subtitle : ""} (${KIND_RU[item.kind] || item.kind}, ${item.id})`;
+  wrap.innerHTML = `<iframe frameborder="0" allow="autoplay; clipboard-write" style="border:none;width:100%;height:${h}px;border-radius:16px;" src="${esc(localSrc)}"></iframe>`;
+  ta.value = buildIframeHtml(item);
+}
+
+async function searchEmbedEntities() {
+  const kind = document.getElementById("eKind").value;
+  const q = document.getElementById("eSearchQuery").value.trim();
+  const box = document.getElementById("eSearchResults");
+  box.innerHTML = `<p class="help">поиск…</p>`;
+  try {
+    const res = await api(`/admin/api/embeds/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(q)}&limit=15`);
+    const items = res.items || [];
+    if (!items.length) {
+      box.innerHTML = `<p class="help">Ничего не найдено.</p>`;
+      return;
+    }
+    box.innerHTML = "";
+    for (const it of items) {
+      const badge = it.localReady
+        ? `<span class="badge active">на диске</span>`
+        : `<span class="badge">онлайн</span>`;
+      const row = el("div", {class:"row", style:"justify-content:space-between;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#11171d"});
+      row.innerHTML = `
+        <div class="row" style="min-width:0;flex:1;flex-wrap:nowrap">
+          <img src="/v1/images/${esc(it.imageId)}?size=xs" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0">
+          <div style="min-width:0">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.title)}</div>
+            <div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#${esc(it.entityId)} · ${esc(it.subtitle || "")} ${it.meta ? "· " + esc(it.meta) : ""}</div>
+          </div>
+        </div>
+        <div class="row" style="flex-shrink:0">${badge}</div>`;
+      const pick = el("button", {type:"button", class:"ghost", text:"Выбрать", onclick: () => {
+        document.getElementById("eEntityId").value = it.entityId;
+        document.getElementById("eSelectedBox").innerHTML = `Выбрано: <b>${esc(it.title)}</b> (${esc(KIND_RU[it.kind] || it.kind)} #${esc(it.entityId)})`;
+      }});
+      row.lastElementChild.append(pick);
+      box.append(row);
+    }
+  } catch (e) {
+    box.innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+  }
+}
+
+function renderEmbedsTable(items) {
+  const root = document.getElementById("embedsTable");
+  if (!items.length) {
+    root.innerHTML = `<p class="help">Пока нет выпущенных интеграций.</p>`;
+    return;
+  }
+  const rows = items.map(it => {
+    const c = it.cache || {};
+    const statusBadge = it.active
+      ? `<span class="badge active">активна</span>`
+      : `<span class="badge revoked">отключена</span>`;
+    const homeTxt = `Home ${c.homeReady || 0}/${c.total || 0}` + (c.homePending ? ` (+${c.homePending} в очереди)` : "") + (c.homeFailed ? ` (ошибок ${c.homeFailed})` : "");
+    const edgeTxt = `Edge ${c.edgeWarmed || 0}/${c.total || 0}` + (c.edgeFailed ? ` (ошибок ${c.edgeFailed})` : "");
+    const originsTxt = (it.allowedOrigins && it.allowedOrigins.length) ? it.allowedOrigins.join(", ") : "* (все сайты)";
+    return `<tr>
+      <td><code>${esc(it.id)}</code><div class="dim">${esc(KIND_RU[it.kind] || it.kind)} #${esc(it.entityId)}</div></td>
+      <td><b>${esc(it.title)}</b><div class="dim">${esc(it.subtitle || "")}</div></td>
+      <td class="qnum" style="font-size:12px"><div>${esc(homeTxt)}</div><div class="dim">${esc(edgeTxt)}</div></td>
+      <td style="font-size:12px;max-width:220px;word-break:break-word">${esc(originsTxt)}</td>
+      <td>${statusBadge}<div class="dim" style="font-size:11px">${esc(it.theme)} / ${esc(it.layout)}</div></td>
+      <td><div class="row">
+        <button class="ghost" type="button" onclick="embedPick('${esc(it.id)}')">Код/превью</button>
+        <button class="ghost" type="button" onclick="embedEditOrigins('${esc(it.id)}')">Домены</button>
+        <button class="ghost" type="button" onclick="embedWarm('${esc(it.id)}')">Прогреть</button>
+        <button class="ghost" type="button" onclick="embedToggle('${esc(it.id)}', ${it.active ? "false" : "true"})">${it.active ? "Отключить" : "Включить"}</button>
+        <button class="ghost" type="button" onclick="embedDelete('${esc(it.id)}')">Удалить</button>
+      </div></td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table><thead><tr><th>ID / Тип</th><th>Релиз</th><th>Кэш (Home / Edge)</th><th>Домены</th><th>Статус</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+async function loadEmbeds() {
+  const input = document.getElementById("eEdgeBaseUrl");
+  try {
+    const [cfg, list] = await Promise.all([
+      api("/admin/api/embeds/config"),
+      api("/admin/api/embeds"),
+    ]);
+    E.configEdge = cfg.edgeBaseUrl || "";
+    const saved = localStorage.getItem(EMBED_EDGE_KEY);
+    if (!input.value) input.value = (saved !== null ? saved : E.configEdge) || "";
+    E.items = list.items || [];
+    renderEmbedsTable(E.items);
+    if (E.previewItem) {
+      const fresh = E.items.find(x => x.id === E.previewItem.id);
+      if (fresh) showEmbedPreview(fresh);
+    } else if (E.items.length) {
+      showEmbedPreview(E.items[0]);
+    }
+  } catch (e) {
+    document.getElementById("embedsTable").innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+  }
+}
+
+function embedPick(id) {
+  const it = E.items.find(x => x.id === id);
+  if (it) {
+    showEmbedPreview(it);
+    document.getElementById("eSnippet").scrollIntoView({behavior:"smooth", block:"nearest"});
+  }
+}
+
+async function embedEditOrigins(id) {
+  const it = E.items.find(x => x.id === id);
+  const current = it ? (it.allowedOrigins || []).join(", ") : "";
+  const val = prompt("Разрешённые домены через запятую (пусто = любые сайты):", current);
+  if (val === null) return;
+  try {
+    const res = await api(`/admin/api/embeds/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ allowedOrigins: val }),
+    });
+    if (res.item) showEmbedPreview(res.item);
+    await loadEmbeds();
+  } catch (e) { alert(e.message); }
+}
+
+async function embedWarm(id) {
+  try {
+    const edgeUrl = currentEdgeBase();
+    if (edgeUrl) {
+      await api(`/admin/api/embeds/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ edgeBaseUrl: edgeUrl }),
+      });
+    }
+    await api(`/admin/api/embeds/${encodeURIComponent(id)}/warm`, {
+      method: "POST",
+      body: JSON.stringify({ force: true }),
+    });
+    await loadEmbeds();
+  } catch (e) { alert(e.message); }
+}
+
+async function embedToggle(id, active) {
+  try {
+    const res = await api(`/admin/api/embeds/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ active }),
+    });
+    if (res.item && E.previewItem && E.previewItem.id === id) showEmbedPreview(res.item);
+    await loadEmbeds();
+  } catch (e) { alert(e.message); }
+}
+
+async function embedDelete(id) {
+  if (!confirm(`Удалить интеграцию ${id}? Виджеты на внешних сайтах перестанут работать, защита треков от GC снимется.`)) return;
+  try {
+    await api(`/admin/api/embeds/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (E.previewItem && E.previewItem.id === id) showEmbedPreview(null);
+    await loadEmbeds();
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById("eSaveEdgeUrl").addEventListener("click", () => {
+  localStorage.setItem(EMBED_EDGE_KEY, document.getElementById("eEdgeBaseUrl").value.trim());
+  if (E.previewItem) showEmbedPreview(E.previewItem);
+});
+document.getElementById("eSearchBtn").addEventListener("click", searchEmbedEntities);
+document.getElementById("eKind").addEventListener("change", () => {
+  if (document.getElementById("eSearchQuery").value.trim()) searchEmbedEntities();
+});
+document.getElementById("eSearchQuery").addEventListener("keydown", ev => {
+  if (ev.key === "Enter") { ev.preventDefault(); searchEmbedEntities(); }
+});
+document.getElementById("eRefreshBtn").addEventListener("click", loadEmbeds);
+document.getElementById("eCreateForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const msg = document.getElementById("eCreateMsg");
+  msg.textContent = "";
+  const eid = Number(document.getElementById("eEntityId").value);
+  if (!eid) { msg.className = "msg err"; msg.textContent = "Укажите ID сущности"; return; }
+  try {
+    const res = await api("/admin/api/embeds", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: document.getElementById("eKind").value,
+        entityId: eid,
+        title: document.getElementById("eTitleOverride").value.trim() || null,
+        theme: document.getElementById("eTheme").value,
+        layout: document.getElementById("eLayout").value,
+        allowedOrigins: document.getElementById("eAllowedOrigins").value,
+        edgeBaseUrl: currentEdgeBase() || null,
+      }),
+    });
+    msg.className = "msg ok";
+    msg.textContent = `Выпущено: ${res.item.id}`;
+    showEmbedPreview(res.item);
+    await loadEmbeds();
+  } catch (e) {
+    msg.className = "msg err";
+    msg.textContent = e.message;
+  }
+});
+document.getElementById("eCopySnippet").addEventListener("click", async () => {
+  const txt = document.getElementById("eSnippet").value;
+  const msg = document.getElementById("eCopyMsg");
+  if (!txt) return;
+  try { await navigator.clipboard.writeText(txt); }
+  catch { document.getElementById("eSnippet").select(); document.execCommand("copy"); }
+  msg.className = "msg ok";
+  msg.textContent = "Скопировано";
+  setTimeout(() => { msg.textContent = ""; }, 1800);
+});
+document.getElementById("eOpenNewTab").addEventListener("click", () => {
+  if (!E.previewItem) return;
+  const base = currentEdgeBase() || window.location.origin;
+  window.open(`${base.replace(/\/+$/, "")}${E.previewItem.embedPath}`, "_blank", "noopener");
+});
+
+(async () => {
+  if (!token) return;
+  try {
+    const me = await api("/admin/api/me");
+    if (me.role === "admin") await showAdmin(me); else logout();
+  } catch { logout(); }
+})();
+</script>
+</body>
+</html>

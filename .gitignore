@@ -1,0 +1,32 @@
+.env
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# venv & tooling
+.venv/
+venv/
+.opencode/
+.coverage
+htmlcov/
+coverage.xml
+
+# nested Lune reference repo (не трогать, своя история)
+client/
+client_NOT_USE/
+
+# GitHub safety rules
+secrets.env
+*.jks
+*.keystore
+*.dump
+*.dump.gz
+
+# Local-only source connectors (the public repo ships only the contract)
+server/app/connectors_local/
+server/tests/connectors_local/
+server/scripts/connectors_local/
